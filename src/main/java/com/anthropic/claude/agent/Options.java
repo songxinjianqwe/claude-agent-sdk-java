@@ -68,6 +68,7 @@ public final class Options {
     private final boolean debug;
     private final String debugFile;
     private final Map<String, String> env;
+    private final List<String> unsetEnv;
     private final Consumer<String> stderr;
     private final int bufferCapacity;
     private final Map<String, String> extraArgs;
@@ -116,6 +117,7 @@ public final class Options {
         this.debug = b.debug;
         this.debugFile = b.debugFile;
         this.env = Map.copyOf(b.env);
+        this.unsetEnv = List.copyOf(b.unsetEnv);
         this.stderr = b.stderr;
         this.bufferCapacity = b.bufferCapacity;
         this.extraArgs = new LinkedHashMap<>(b.extraArgs);
@@ -159,6 +161,11 @@ public final class Options {
 
     public Map<String, String> env() {
         return env;
+    }
+
+    /** Env var names to remove from the child's inherited environment (Node SDK {@code env=undefined}). */
+    public List<String> unsetEnv() {
+        return unsetEnv;
     }
 
     public Consumer<String> stderr() {
@@ -470,6 +477,7 @@ public final class Options {
         private boolean debug = false;
         private String debugFile;
         private final Map<String, String> env = new LinkedHashMap<>();
+        private final List<String> unsetEnv = new ArrayList<>();
         private Consumer<String> stderr;
         private int bufferCapacity = 1024;
         private final Map<String, String> extraArgs = new LinkedHashMap<>();
@@ -669,13 +677,30 @@ public final class Options {
             return this;
         }
 
+        /** Set an env var for the child. A {@code null} value REMOVES it (Node SDK {@code env: undefined}). */
         public Builder env(String key, String value) {
-            this.env.put(key, value);
+            if (value == null) {
+                this.unsetEnv.add(key);
+            } else {
+                this.env.put(key, value);
+            }
             return this;
         }
 
+        /** Bulk {@link #env(String, String)}; a null value removes that var (Node SDK {@code env: undefined}). */
         public Builder env(Map<String, String> values) {
-            this.env.putAll(values);
+            values.forEach(this::env);
+            return this;
+        }
+
+        /**
+         * Environment variable names to REMOVE from the child's inherited environment (the Node SDK's
+         * {@code env: undefined} semantics). Applied after {@link #env} puts, so an unset always wins.
+         * Useful to strip Claude Code's own injected vars ({@code CLAUDECODE} / {@code TMUX} / …) when
+         * spawning {@code claude} from inside a Claude Code / tmux session.
+         */
+        public Builder unsetEnv(String... keys) {
+            this.unsetEnv.addAll(List.of(keys));
             return this;
         }
 

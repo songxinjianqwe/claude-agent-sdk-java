@@ -12,6 +12,7 @@ import com.anthropic.claude.agent.message.SdkSystemMessage;
 import com.anthropic.claude.agent.testkit.FakeTransport;
 import com.anthropic.claude.agent.testkit.TestSubscriber;
 import com.anthropic.claude.agent.transport.TransportException;
+import java.time.Duration;
 import java.util.List;
 import org.junit.Test;
 
@@ -126,5 +127,44 @@ public class QueryFakeTransportTest {
         assertEquals(1, sub.received.size());
         assertTrue(sub.error instanceof TransportException);
         assertFalse(sub.completed);
+    }
+
+    @Test
+    public void collectWithTimeoutReturnsWhenQueryFinishesInTime() {
+        FakeTransport t = new FakeTransport();
+        Query q = ClaudeAgent.query("hi", Options.defaults(), t);
+        t.feedLine(ASSISTANT);
+        t.feedLine(RESULT);
+        t.feedExit(0);
+
+        List<SdkMessage> msgs = q.collect(Duration.ofSeconds(5));
+        assertEquals(2, msgs.size());
+    }
+
+    @Test
+    public void collectWithTimeoutAbortsAndClosesWhenQueryHangs() {
+        FakeTransport t = new FakeTransport();
+        Query q = ClaudeAgent.query("hi", Options.defaults(), t);
+        t.feedLine(ASSISTANT);   // a message arrives but no result/exit ever comes → the stream hangs
+
+        assertThrows(QueryTimeoutException.class, () -> q.collect(Duration.ofMillis(200)));
+        assertTrue("transport must be closed on timeout", t.closed);
+    }
+
+    @Test
+    public void collectWithTimeoutPropagatesStreamError() {
+        FakeTransport t = new FakeTransport();
+        Query q = ClaudeAgent.query("hi", Options.defaults(), t);
+        t.feedLine(ASSISTANT);
+        t.feedError(new TransportException("exit 1", 1, "boom"));
+
+        assertThrows(TransportException.class, () -> q.collect(Duration.ofSeconds(5)));
+    }
+
+    @Test
+    public void collectWithNonPositiveTimeoutRejected() {
+        FakeTransport t = new FakeTransport();
+        Query q = ClaudeAgent.query("hi", Options.defaults(), t);
+        assertThrows(IllegalArgumentException.class, () -> q.collect(Duration.ZERO));
     }
 }

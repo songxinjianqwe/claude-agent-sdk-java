@@ -228,4 +228,40 @@ public class OptionsToCliArgsTest {
         assertEquals("/usr/local/bin/claude", cmd.get(0));
         assertEquals("--print", cmd.get(1));
     }
+
+    @Test
+    public void envAndUnsetEnvDoNotLeakIntoCliArgs() {
+        Options o = Options.builder()
+                .env("PATH", "/custom/bin")
+                .unsetEnv("CLAUDECODE", "TMUX")
+                .build();
+        // env / unsetEnv travel via ProcessBuilder.environment(), never as CLI flags.
+        List<String> a = o.toCliArgs();
+        assertFalse(a.contains("PATH"));
+        assertFalse(a.contains("/custom/bin"));
+        assertFalse(a.contains("CLAUDECODE"));
+        assertFalse(a.contains("TMUX"));
+        // builder stores the unset list in order.
+        assertEquals(List.of("CLAUDECODE", "TMUX"), o.unsetEnv());
+    }
+
+    @Test
+    public void envWithNullValueBecomesUnset() {
+        Options o = Options.builder()
+                .env("FOO", "bar")
+                .env("CLAUDECODE", null)   // null value → unset (Node SDK env=undefined)
+                .build();
+        assertEquals("bar", o.env().get("FOO"));
+        assertFalse(o.env().containsKey("CLAUDECODE"));
+        assertTrue(o.unsetEnv().contains("CLAUDECODE"));
+
+        // bulk form: a null value in the map also becomes an unset
+        java.util.Map<String, String> m = new java.util.HashMap<>();
+        m.put("TMUX", null);
+        m.put("KEEP", "1");
+        Options o2 = Options.builder().env(m).build();
+        assertTrue(o2.unsetEnv().contains("TMUX"));
+        assertEquals("1", o2.env().get("KEEP"));
+        assertFalse(o2.env().containsKey("TMUX"));
+    }
 }

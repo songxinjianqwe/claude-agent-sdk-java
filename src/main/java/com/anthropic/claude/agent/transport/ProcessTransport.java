@@ -60,9 +60,14 @@ public final class ProcessTransport implements Transport {
         if (options.cwd() != null && !options.cwd().isBlank()) {
             pb.directory(new java.io.File(options.cwd()));
         }
-        if (!options.env().isEmpty()) {
+        if (!options.env().isEmpty() || !options.unsetEnv().isEmpty()) {
             Map<String, String> environment = pb.environment();
             environment.putAll(options.env());
+            // Remove inherited vars the caller wants gone (Node SDK env=undefined). Applied after the
+            // puts so an unset always wins — e.g. stripping CLAUDECODE/TMUX when spawning from a CC session.
+            for (String key : options.unsetEnv()) {
+                environment.remove(key);
+            }
         }
         pb.redirectErrorStream(false);
 

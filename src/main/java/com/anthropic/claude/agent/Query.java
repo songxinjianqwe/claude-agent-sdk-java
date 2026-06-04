@@ -4,12 +4,14 @@ import com.anthropic.claude.agent.internal.BlockingSubscriber;
 import com.anthropic.claude.agent.message.SdkMessage;
 import com.anthropic.claude.agent.permission.PermissionMode;
 import com.fasterxml.jackson.databind.JsonNode;
+import java.time.Duration;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
@@ -145,5 +147,50 @@ public interface Query extends Flow.Publisher<SdkMessage>, AutoCloseable {
     /** Block until the query finishes and collect every message (convenience for one-shot use). */
     default List<SdkMessage> collect() {
         return stream().toList();
+    }
+
+    /**
+     * Block until the query finishes and collect every message, with a hard wall-clock bound. On
+     * timeout the underlying process is {@link #close() closed} and {@link QueryTimeoutException} is
+     * thrown; a {@code claude} that hangs can therefore never wedge the caller forever. If the
+     * message stream itself errors, that error is propagated (unwrapped if it is unchecked).
+     *
+     * @param timeout max time to wait; must be positive
+     */
+    default List<SdkMessage> collect(Duration timeout) {
+        long millis = timeout.toMillis();
+        if (millis <= 0) {
+            throw new IllegalArgumentException("timeout must be > 0, was " + timeout);
+        }
+        AtomicReference<List<SdkMessage>> out = new AtomicReference<>();
+        Throwable[] err = new Throwable[1];
+        Thread worker = new Thread(() -> {
+            try {
+                out.set(collect());
+            } catch (Throwable t) {
+                err[0] = t;
+            }
+        }, "claude-collect-timeout");
+        worker.setDaemon(true);
+        worker.start();
+        try {
+            worker.join(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            close();
+            throw new QueryTimeoutException("interrupted while awaiting query completion");
+        }
+        if (worker.isAlive()) {
+            close();              // abort the hung process; the worker's blocking take() then unblocks
+            worker.interrupt();
+            throw new QueryTimeoutException("query did not complete within " + timeout);
+        }
+        if (err[0] != null) {
+            if (err[0] instanceof RuntimeException re) {
+                throw re;
+            }
+            throw new RuntimeException(err[0]);
+        }
+        return out.get();
     }
 }
