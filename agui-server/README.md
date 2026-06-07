@@ -113,7 +113,8 @@ export default function App() {
 **不做**（留作后续增量）：HITL 工具审批、shared state（`STATE_*`）、generative UI、鉴权、持久化。
 这些是 CopilotKit 的高级能力，但 Claude 原生没有对应概念，需在 adapter 层额外发明机制。
 
-## 设计文档
+## 文档
 
+- [**AG-UI × CopilotKit 接入详解**](docs/ag-ui-copilotkit-接入详解.md) — 概念厘清 + 架构 + 踩坑全记录（**推荐先读**，理解「为什么这样做」）
 - `../docs/superpowers/specs/2026-06-07-agui-adapter-design.md` — 设计
 - `../docs/superpowers/plans/2026-06-07-agui-adapter-backend.md` — 后端实现计划（TDD）
