@@ -116,5 +116,6 @@ export default function App() {
 ## 文档
 
 - [**AG-UI × CopilotKit 接入详解**](docs/ag-ui-copilotkit-接入详解.md) — 概念厘清 + 架构 + 踩坑全记录（**推荐先读**，理解「为什么这样做」）
+- [**Generative UI 是怎么回事**](docs/generative-ui详解.md) — 用三个例子 + 时序图讲透 generative UI / 前端工具 / HITL，核心是「谁执行工具 ≠ 谁渲染工具」
 - `../docs/superpowers/specs/2026-06-07-agui-adapter-design.md` — 设计
 - `../docs/superpowers/plans/2026-06-07-agui-adapter-backend.md` — 后端实现计划（TDD）
