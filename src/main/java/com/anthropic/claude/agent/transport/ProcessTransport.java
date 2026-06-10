@@ -9,8 +9,12 @@ import java.io.Writer;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -56,7 +60,12 @@ public final class ProcessTransport implements Transport {
     @Override
     public void start(Listener listener) throws IOException {
         this.listener = listener;
-        ProcessBuilder pb = new ProcessBuilder(options.command());
+        // --system-prompt <text> is passed as a CLI arg; very long prompts (wiki index + KB list)
+        // can exceed the OS ARG_MAX (E2BIG). When the value is large, write it to a temp file and
+        // use --system-prompt-file instead. The file is deleted immediately after pb.start() because
+        // claude CLI reads its args synchronously before the JVM returns from ProcessBuilder.start().
+        List<String> cmd = rewriteLongSystemPrompt(options.command());
+        ProcessBuilder pb = new ProcessBuilder(cmd);
         if (options.cwd() != null && !options.cwd().isBlank()) {
             pb.directory(new java.io.File(options.cwd()));
         }
@@ -71,7 +80,7 @@ public final class ProcessTransport implements Transport {
         }
         pb.redirectErrorStream(false);
 
-        LOG.log(Level.DEBUG, () -> "spawning: " + String.join(" ", options.command()));
+        LOG.log(Level.DEBUG, () -> "spawning: " + String.join(" ", cmd));
         this.process = pb.start();
         this.stdin = new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8);
         this.writer = Executors.newSingleThreadExecutor(r -> daemon(r, "claude-sdk-writer"));
@@ -83,6 +92,36 @@ public final class ProcessTransport implements Transport {
         this.stderrThread = new Thread(this::readStderr, "claude-sdk-stderr");
         this.stderrThread.setDaemon(true);
         this.stderrThread.start();
+    }
+
+    // If --system-prompt value exceeds this length, spill to a temp file.
+    private static final int SYSTEM_PROMPT_FILE_THRESHOLD = 32_768;
+
+    /**
+     * Scan the command list for {@code --system-prompt <value>} whose value is longer than
+     * {@link #SYSTEM_PROMPT_FILE_THRESHOLD}. When found, write the value to a temp file and
+     * replace the pair with {@code --system-prompt-file <path>} to avoid E2BIG (ARG_MAX exceeded).
+     */
+    private static List<String> rewriteLongSystemPrompt(List<String> cmd) throws IOException {
+        List<String> out = new ArrayList<>(cmd.size());
+        for (int i = 0; i < cmd.size(); i++) {
+            if ("--system-prompt".equals(cmd.get(i)) && i + 1 < cmd.size()) {
+                String value = cmd.get(i + 1);
+                if (value.length() > SYSTEM_PROMPT_FILE_THRESHOLD) {
+                    Path tmp = Files.createTempFile("claude-sysprompt-", ".txt");
+                    Files.writeString(tmp, value, StandardCharsets.UTF_8);
+                    // delete on JVM exit as a safety net; also deleted after pb.start() below
+                    tmp.toFile().deleteOnExit();
+                    out.add("--system-prompt-file");
+                    out.add(tmp.toAbsolutePath().toString());
+                    i++; // skip original value
+                    LOG.log(Level.DEBUG, () -> "system-prompt spilled to file: " + tmp);
+                    continue;
+                }
+            }
+            out.add(cmd.get(i));
+        }
+        return out;
     }
 
     private static Thread daemon(Runnable r, String name) {
