@@ -72,6 +72,19 @@ q.endInput();                       // close stdin → the CLI finishes and exit
 Query q2 = ClaudeAgent.query(somePublisherOfStrings, options);
 ```
 
+## Examples
+
+End-to-end, runnable examples of the two ways to drive the CLI from a long-lived service live in
+[`examples/`](examples/) (desensitized distillations of a production agent runtime):
+
+- [`SingleTurnExample.java`](examples/SingleTurnExample.java) — **no process reuse**: one subprocess
+  per turn, conversation state carried by the CLI session file (`resume`).
+- [`SessionPoolExample.java`](examples/SessionPoolExample.java) — **process-reuse pool**: keep the
+  subprocess warm (`streamingQuery`) and feed turns via `streamInput`, with epoch-tagged message
+  routing, stale-spawn respawn, close-on-anomaly, and a capacity gate.
+
+See [`examples/README.md`](examples/README.md) for the trade-offs and how to compile/run them.
+
 ## Tool permission callback (`canUseTool`)
 
 ```java
