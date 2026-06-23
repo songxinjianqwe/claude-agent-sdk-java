@@ -85,6 +85,50 @@ End-to-end, runnable examples of the two ways to drive the CLI from a long-lived
 
 See [`examples/README.md`](examples/README.md) for the trade-offs and how to compile/run them.
 
+## AG-UI server (browser chat UI)
+
+[`agui-server/`](agui-server/) is a reference integration that bridges this SDK to the
+**[AG-UI protocol](https://docs.ag-ui.com)** and ships a minimal **CopilotKit** frontend — so you
+can chat with Claude in a browser (typewriter text, tool-call lifecycle, reasoning, multi-turn)
+using your `claude` CLI auth, with no Node middle layer.
+
+```
+browser (Vite + CopilotKit v2 HttpAgent)
+   │  POST /agui { threadId, runId, messages[] }
+   │  ◄── SSE stream of AG-UI events
+   ▼
+agui-server (Spring Boot, :8095)
+   ├─ AgUiController   POST /agui → SseEmitter
+   ├─ RunTranslator    Flow.Subscriber<SdkMessage> state machine → AG-UI events
+   └─ SessionStore     threadId → claude sessionId (multi-turn .resume())
+   ▼
+ClaudeAgent.query(...) → local claude CLI
+```
+
+`RunTranslator` maps the SDK's structured `SdkMessage` stream onto AG-UI events — e.g. partial
+`text_delta` → `TEXT_MESSAGE_START/_CONTENT/_END`, a `tool_use` block → `TOOL_CALL_START/_ARGS/_END`,
+`thinking` → `REASONING_*`, and `SdkResultMessage` → `RUN_FINISHED` / `RUN_ERROR`. The translation
+is a pure `Consumer<AgUiEvent>` sink, fully unit-testable off the HTTP path.
+
+Run it (full UI):
+
+```bash
+mvn install -DskipTests          # install the core lib to ~/.m2
+cd agui-server && mvn spring-boot:run        # backend on :8095
+cd web && npm install && npm run dev         # frontend on :5180 (separate terminal)
+```
+
+Backend-only smoke test (watch the raw AG-UI SSE stream, no frontend):
+
+```bash
+curl -N -X POST http://localhost:8095/agui \
+  -H 'Content-Type: application/json' \
+  -d '{"threadId":"t1","runId":"r1","messages":[{"id":"1","role":"user","content":"Introduce yourself in one sentence"}]}'
+```
+
+Details, the CopilotKit v2 wiring, and a generative-UI deep dive are in
+[`agui-server/README.md`](agui-server/README.md) and [`agui-server/docs/`](agui-server/docs/).
+
 ## Tool permission callback (`canUseTool`)
 
 ```java
